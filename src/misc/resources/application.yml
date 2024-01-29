@@ -1,0 +1,49 @@
+accounting:
+  ai:
+    purchases:
+      collection: AccountingPurchases
+      index:
+        initial-delay: 3000
+        delay: 3600000
+    milvus:
+      host: 10.5.5.80
+      port: 32530
+  liquibase:
+    enabled: false
+spring:
+  jpa:
+    generate-ddl: false
+    show-sql: true
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: false
+  liquibase:
+    enabled: false
+  datasource:
+    url: jdbc:mysql://localhost:3306/accounting?useUnicode=true&characterEncoding=utf8
+    username: accounting
+    password: accounting
+    driver-class-name: com.mysql.jdbc.Driver
+  security:
+    oauth2:
+      client:
+        registration:
+          gigachat:
+            # client-id: <set client id via environment variable>
+            # client-secret: <set client secret via environment variable>
+            authorization-grant-type: client_credentials
+            scope: GIGACHAT_API_PERS
+        provider:
+          gigachat:
+            token-uri: https://ngw.devices.sberbank.ru:9443/api/v2/oauth
+debug: true
+server:
+  port: 18080
+logging:
+  level:
+    ru.vzotov.ai: debug
+    org.apache.hc.client5.http: debug
+    org.apache.hc.client5.http.wire: debug
+    org.apache.hc.client5.http.headers: debug
