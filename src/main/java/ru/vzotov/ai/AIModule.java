@@ -1,10 +1,15 @@
 package ru.vzotov.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import gigachat.v1.ChatServiceGrpc;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.param.ConnectParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +30,11 @@ import org.springframework.web.client.RestTemplate;
 import ru.vzotov.ai.application.EmbeddingsClient;
 import ru.vzotov.ai.gigachat.GigaChatAccessTokenResponseConverter;
 import ru.vzotov.ai.gigachat.GigachatEmbeddings;
+import ru.vzotov.ai.interfaces.facade.AIFacade;
+import ru.vzotov.ai.interfaces.facade.impl.AIFacadeImpl;
+import ru.vzotov.ai.util.BearerToken;
+import ru.vzotov.cashreceipt.domain.model.PurchaseCategoryRepository;
+import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -43,6 +53,19 @@ public class AIModule {
     private static final Logger log = LoggerFactory.getLogger(AIModule.class);
 
     @Bean
+    AIFacade facade(
+            PurchaseCategoryRepository purchaseCategoryRepository,
+            PurchaseRepository purchaseRepository,
+            @Value("${accounting.ai.purchases.collection}")
+            String collectionName,
+            MilvusServiceClient milvusClient,
+            EmbeddingsClient embeddingsClient,
+            ChatServiceGrpc.ChatServiceBlockingStub gigachat,
+            ObjectMapper objectMapper) {
+        return new AIFacadeImpl(purchaseCategoryRepository, purchaseRepository, collectionName, milvusClient, embeddingsClient, gigachat, objectMapper);
+    }
+
+    @Bean
     ConnectParam milvusConnectionParameters(MilvusConfigProperties milvusConfig) {
         return ConnectParam.newBuilder()
                 .withHost(milvusConfig.host())
@@ -56,7 +79,21 @@ public class AIModule {
     }
 
     @Bean
-    public EmbeddingsClient embeddingsClient(
+    ChatServiceGrpc.ChatServiceBlockingStub gigachat(ObjectFactory<OAuth2AccessToken> accessTokenFactory) {
+        AtomicReference<OAuth2AccessToken> tokenValue = new AtomicReference<>();
+        ManagedChannel channel = ManagedChannelBuilder.forTarget("gigachat.devices.sberbank.ru").build();
+        return ChatServiceGrpc.newBlockingStub(channel)
+                .withCallCredentials(new BearerToken(() -> {
+                    OAuth2AccessToken token =
+                            tokenValue.updateAndGet(t ->
+                                    t != null && t.getExpiresAt() != null && Instant.now().isBefore(t.getExpiresAt()) ?
+                                            t : accessTokenFactory.getObject());
+                    return token.getTokenValue();
+                }));
+    }
+
+    @Bean
+    EmbeddingsClient embeddingsClient(
             ObjectFactory<OAuth2AccessToken> accessTokenFactory,
             RestTemplateBuilder builder
     ) {

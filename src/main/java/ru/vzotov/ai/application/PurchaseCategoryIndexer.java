@@ -24,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.vzotov.accounting.domain.model.PersistentProperty;
 import ru.vzotov.accounting.domain.model.PersistentPropertyId;
 import ru.vzotov.accounting.domain.model.PersistentPropertyRepository;
+import ru.vzotov.ai.domain.PurchaseCategoriesCollection;
+import ru.vzotov.ai.domain.Templates;
 import ru.vzotov.ai.util.BearerToken;
 import ru.vzotov.purchase.domain.model.Purchase;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
@@ -42,12 +44,8 @@ import static ru.vzotov.purchases.domain.model.PurchaseSpecifications.updatedAft
  * Indexes purchase categories for vector search.
  */
 @Component
-public class PurchaseCategoryIndexer {
+public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
     private static final Logger log = LoggerFactory.getLogger(PurchaseCategoryIndexer.class);
-    public static final String F_PK = "pk";
-    public static final String F_LAST_MODIFIED = "last_modified";
-    public static final String F_TEXT = "text";
-    public static final String F_VECTOR = "vector";
 
     private final String collectionName;
     private final ObjectMapper objectMapper;
@@ -228,8 +226,7 @@ public class PurchaseCategoryIndexer {
 
         public ItemAction(Purchase purchase) {
             this.purchase = purchase;
-            this.text = "Purchase '%s' has category '%s' with id '%s'."
-                    .formatted(purchase.name(), purchase.category().name(), purchase.category().categoryId().value());
+            this.text = Templates.purchaseHasCategory(purchase);
         }
 
         public Purchase purchase() {
