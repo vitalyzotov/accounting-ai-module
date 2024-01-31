@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.vzotov.accounting.domain.model.PersistentProperty;
 import ru.vzotov.accounting.domain.model.PersistentPropertyId;
 import ru.vzotov.accounting.domain.model.PersistentPropertyRepository;
+import ru.vzotov.ai.domain.EmbeddingsModel;
 import ru.vzotov.ai.domain.PurchaseCategoriesCollection;
 import ru.vzotov.ai.domain.Templates;
 import ru.vzotov.ai.util.BearerToken;
@@ -52,7 +53,7 @@ public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
     private final PurchaseRepository purchaseRepository;
     private final PersistentPropertyRepository propertyRepository;
     private final MilvusServiceClient milvusClient;
-    private final EmbeddingsClient embeddingsClient;
+    private final EmbeddingsModel embeddingsModel;
     private final ObjectFactory<OAuth2AccessToken> accessTokenFactory;
 
     public PurchaseCategoryIndexer(
@@ -62,14 +63,14 @@ public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
             PurchaseRepository purchaseRepository,
             PersistentPropertyRepository propertyRepository,
             MilvusServiceClient milvusClient,
-            EmbeddingsClient embeddingsClient,
+            EmbeddingsModel embeddingsModel,
             ObjectFactory<OAuth2AccessToken> accessTokenFactory) {
         this.collectionName = collectionName;
         this.objectMapper = objectMapper;
         this.purchaseRepository = purchaseRepository;
         this.propertyRepository = propertyRepository;
         this.milvusClient = milvusClient;
-        this.embeddingsClient = embeddingsClient;
+        this.embeddingsModel = embeddingsModel;
         this.accessTokenFactory = accessTokenFactory;
     }
 
@@ -119,25 +120,17 @@ public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
             fixedDelayString = "${accounting.ai.purchases.index.delay}")
     @Transactional(value = "accounting-tx")
     public void doIndex() {
-        /*
-        Gigachatv1.ChatResponse chat = gigachat().chat(Gigachatv1.ChatRequest.newBuilder()
-                        .setModel("GigaChat:latest")
-                .addMessages(Gigachatv1.Message.newBuilder()
-                        .setRole("user")
-                        .setContent("Сгенерируй от 5 до 10 объектов для сущности \"автомобиль\" для каждого объекта сгенерируй до 10 синонимов. Придерживайся следующих правил: объекты и синонимы должны быть уникальны, не придумывай несуществующие слова и выражения, если у тебя закончились варианты, то не генерируй ничего. Результат верни в формате JSON-массива без каких-либо пояснений, например, [{\"entity\": \"название объекта\", \"synonyms\": [\"синоним1\", \"синоним2\"]}].").build())
-                .build());
-        chat.getAlternativesList().stream().map(alt -> alt.getMessage().getContent()).forEach(System.out::println);
-
-         */
-//        String stats = milvusClient.getCollectionStatistics(GetCollectionStatisticsParam.newBuilder().withCollectionName("Accounting").build()).getData().toString();
-//        log.debug("Stats: {}", stats);
+        log.info("Start indexing purchases");
         if (!Boolean.TRUE.equals(milvusClient.hasCollection(
                 HasCollectionParam.newBuilder()
-                        .withCollectionName(collectionName).build()
+                        .withCollectionName(collectionName)
+                        .build()
         ).getData())) {
+            log.warn("Milvus collection does not exist and will be created");
             createCollection();
         }
         milvusClient.loadCollection(LoadCollectionParam.newBuilder().withCollectionName(collectionName).build());
+        log.debug("Collection {} loaded", collectionName);
 
         indexPurchases();
     }
@@ -204,7 +197,7 @@ public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
         Optional<Instant> max = purchases.stream()
                 .filter(purchase -> purchase != null && purchase.category() != null)
                 .map(ItemAction::new)
-                .peek(action -> Optional.of(embeddingsClient.embed(action.text()))
+                .peek(action -> Optional.of(embeddingsModel.embed(action.text()))
                         .map(Arrays::asList)
                         .ifPresent(action::setEmbedding))
                 .peek(action -> milvusClient.upsert(

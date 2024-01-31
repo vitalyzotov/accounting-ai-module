@@ -2,13 +2,13 @@ package ru.vzotov.ai.gigachat;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.web.client.RestOperations;
-import ru.vzotov.ai.application.EmbeddingsClient;
+import ru.vzotov.ai.domain.EmbeddingsModel;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-public class GigachatEmbeddings implements EmbeddingsClient {
+public class GigachatEmbeddings implements EmbeddingsModel {
 
     private final RestOperations restOperations;
 

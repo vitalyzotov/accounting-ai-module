@@ -27,9 +27,11 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.web.client.RestTemplate;
-import ru.vzotov.ai.application.EmbeddingsClient;
+import ru.vzotov.ai.domain.ChatModel;
+import ru.vzotov.ai.domain.EmbeddingsModel;
 import ru.vzotov.ai.gigachat.GigaChatAccessTokenResponseConverter;
 import ru.vzotov.ai.gigachat.GigachatEmbeddings;
+import ru.vzotov.ai.gigachat.GigachatModel;
 import ru.vzotov.ai.interfaces.facade.AIFacade;
 import ru.vzotov.ai.interfaces.facade.impl.AIFacadeImpl;
 import ru.vzotov.ai.util.BearerToken;
@@ -59,10 +61,15 @@ public class AIModule {
             @Value("${accounting.ai.purchases.collection}")
             String collectionName,
             MilvusServiceClient milvusClient,
-            EmbeddingsClient embeddingsClient,
-            ChatServiceGrpc.ChatServiceBlockingStub gigachat,
+            EmbeddingsModel embeddingsModel,
+            ChatModel chatModel,
             ObjectMapper objectMapper) {
-        return new AIFacadeImpl(purchaseCategoryRepository, purchaseRepository, collectionName, milvusClient, embeddingsClient, gigachat, objectMapper);
+        return new AIFacadeImpl(purchaseCategoryRepository, purchaseRepository, collectionName, milvusClient, embeddingsModel, chatModel, objectMapper);
+    }
+
+    @Bean
+    ChatModel chatModel(ChatServiceGrpc.ChatServiceBlockingStub gigachat) {
+        return new GigachatModel(gigachat);
     }
 
     @Bean
@@ -93,7 +100,7 @@ public class AIModule {
     }
 
     @Bean
-    EmbeddingsClient embeddingsClient(
+    EmbeddingsModel embeddingsClient(
             ObjectFactory<OAuth2AccessToken> accessTokenFactory,
             RestTemplateBuilder builder
     ) {
@@ -105,12 +112,13 @@ public class AIModule {
                             tokenValue.updateAndGet(t ->
                                     t != null && t.getExpiresAt() != null && Instant.now().isBefore(t.getExpiresAt()) ?
                                             t : accessTokenFactory.getObject());
+                    Instant expiresAt = token.getExpiresAt();
 
                     HttpHeaders headers = request.getHeaders();
                     headers.setContentType(MediaType.APPLICATION_JSON);
                     headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
                     headers.add(HttpHeaders.AUTHORIZATION, "Bearer %s".formatted(token.getTokenValue()));
-                    log.debug("Body: {}", new String(body, StandardCharsets.UTF_8));
+                    log.debug("Access token expires at {}. Body: {}", expiresAt, new String(body, StandardCharsets.UTF_8));
                     return execution.execute(request, body);
                 })
                 .build();
