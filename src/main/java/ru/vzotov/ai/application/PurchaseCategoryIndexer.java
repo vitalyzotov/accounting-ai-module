@@ -92,12 +92,12 @@ public class PurchaseCategoryIndexer implements PurchaseCategoriesCollection {
     }
 
     public void updateLastIndexedOn(Instant value) {
-        PersistentProperty prop = propertyRepository.findSystemProperty("ai.purchases");
+        PersistentProperty prop = Optional.ofNullable(propertyRepository.findSystemProperty("ai.purchases"))
+                .orElseGet(() -> new PersistentProperty(PersistentPropertyId.nextId(), "ai.purchases"));
         PurchasesAIProperties props = new PurchasesAIProperties(value);//todo: keep other properties
         try {
-            propertyRepository.store(new PersistentProperty(
-                    prop == null ? PersistentPropertyId.nextId() : prop.propertyId(), "ai.purchases",
-                    objectMapper.writeValueAsString(props)));
+            prop.setValue(objectMapper.writeValueAsString(props));
+            propertyRepository.store(prop);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }

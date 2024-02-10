@@ -68,8 +68,8 @@ public class AIModule {
     }
 
     @Bean
-    ChatModel chatModel(ChatServiceGrpc.ChatServiceBlockingStub gigachat) {
-        return new GigachatModel(gigachat);
+    ChatModel chatModel(ChatServiceGrpc.ChatServiceBlockingStub gigachat, @Value("${accounting.ai.gigachat.model:GigaChat}") String modelName) {
+        return new GigachatModel(gigachat, modelName);
     }
 
     @Bean

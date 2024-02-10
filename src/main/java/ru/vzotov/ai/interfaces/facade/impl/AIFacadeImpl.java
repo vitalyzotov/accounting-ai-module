@@ -29,11 +29,12 @@ import ru.vzotov.purchase.domain.model.PurchaseId;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static ru.vzotov.ai.domain.Templates.ragPrompt;
-import static ru.vzotov.ai.domain.Templates.suggestParentCategory;
+import static ru.vzotov.ai.domain.Templates.*;
 
 public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
     private static final Logger log = LoggerFactory.getLogger(AIFacadeImpl.class);
@@ -66,47 +67,104 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
     @Override
     @Transactional(value = "accounting-tx", readOnly = true)
     @Secured({"ROLE_USER"})
-    public List<PurchasesApi.Purchase> classifyPurchases(List<String> purchaseId) {
-        List<PurchaseCategory> categories = purchaseCategoryRepository.findAll(SecurityUtils.getCurrentPerson());
+    public List<PurchasesApi.Purchase> classifyPurchases(List<String> purchaseIdList) {
+        final List<PurchaseCategory> categories = purchaseCategoryRepository.findAll(SecurityUtils.getCurrentPerson());
+
+        final AtomicInteger categoryIndex = new AtomicInteger(1);
+        final AtomicInteger purchaseIndex = new AtomicInteger(1);
+
+        final Map<PurchaseCategoryId, String> categoryIdMapping = categories.stream()
+                .collect(Collectors.toMap(PurchaseCategory::categoryId,
+                        pc -> "category%d".formatted(categoryIndex.getAndIncrement())));
+        final Map<String, PurchaseCategoryId> categoryIdReverseMapping = categoryIdMapping.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+
+        final Map<String, List<PurchaseCategory>> categoryByName =
+                categories.stream().collect(Collectors.groupingBy(c -> c.name().toLowerCase()));
+
+        final Function<PurchaseCategoryId, PurchaseCategory> findById = purchaseCategoryRepository::findById;
+
+        final Function<String, PurchaseCategory> lookByName = name ->
+                Optional.ofNullable(categoryByName.get(name.toLowerCase()))
+                        .map(candidates -> candidates.get(0))
+                        .orElse(null);
         try {
-            String categoriesContext = "List of possible categories: %s".formatted(
+            final List<Purchase> purchases = loadPurchases(purchaseIdList);
+            final Map<PurchaseId, Purchase> purchaseMap = purchases.stream()
+                    .collect(Collectors.toMap(Purchase::purchaseId, p -> p));
+            final Map<PurchaseId, String> purchaseIdMapping = purchases.stream()
+                    .collect(Collectors.toMap(Purchase::purchaseId,
+                            pc -> "purchase%d".formatted(purchaseIndex.getAndIncrement())));
+            final Map<String, PurchaseId> purchaseIdReverseMapping = purchaseIdMapping.entrySet().stream()
+                    .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+
+
+            // Prepare list of possible categories for final prompt
+            final String categoriesContext = "List of possible categories: %s".formatted(
                     objectMapper.writeValueAsString(
                             categories.stream()
-                                    .map(c -> new CategoryData(c.name(), c.categoryId().value()))
+                                    .map(c -> new CategoryData(c.name(), categoryIdMapping.get(c.categoryId())))
                                     .toList()));
 
-            List<Purchase> purchases = purchaseId.stream()
-                    .filter(Objects::nonNull)
-                    .map(PurchaseId::new)
-                    .map(purchaseRepository::find)
-                    .filter(Objects::nonNull)
-                    .toList();
+            // Prepare context for final prompt
+            final String context = prepareContext(purchases);
+            final String purchasesToClassify = objectMapper.writeValueAsString(purchases.stream()
+                    .map(p -> new IdNameOfPurchase(purchaseIdMapping.get(p.purchaseId()), p.name()))
+                    .toList());
 
-            for (Purchase p : purchases) {
-                String context = vectorSearch(Templates.purchaseSearchQuery(p)).collect(Collectors.joining("\r\n"));
+            // The final prompt
+            final String prompt = ragPrompt(context, categoriesContext,
+                    purchaseAssignCategoriesQuestion(purchasesToClassify));
 
 
-                String prompt = ragPrompt(context, categoriesContext, Templates.purchaseAssignCategoryQuestion(p));
-                chatModel.chat(prompt)
-                        .flatMap(this::parseCategoryAnswer)
-                        .findFirst()
-                        .map(cat -> Optional.ofNullable(purchaseCategoryRepository.findById(new PurchaseCategoryId(cat.id)))
-                                .orElseGet(() ->
-                                        chatModel.chat(ragPrompt(categoriesContext, suggestParentCategory(cat.name())))
-                                                .flatMap(this::parseCategoryAnswer)
-                                                .findFirst()
-                                                .map(CategoryData::id)
-                                                .map(PurchaseCategoryId::new)
-                                                .map(purchaseCategoryRepository::findById)
-                                                .orElse(null)
-                                ))
-                        .ifPresent(p::assignCategory);
-            }
+            final Function<String, PurchaseCategory> thinking = name ->
+                    chatModel.chat(ragPrompt(categoriesContext, suggestParentCategory(name)))
+                            .flatMap(this::parseCategoryAnswer)
+                            .findFirst()
+                            .map(CategoryData::id)
+                            .map(categoryIdReverseMapping::get)
+                            .map(findById)
+                            .orElse(null);
+
+            chatModel.chat(prompt)
+                    .flatMap(this::parseCategoriesAnswer)
+                    .forEach(answer -> {
+                        final Purchase p = purchaseMap.get(purchaseIdReverseMapping.get(answer.purchaseId()));
+                        if (p == null) return;
+
+                        PurchaseCategory targetCategory = findById.apply(categoryIdReverseMapping.get(answer.categoryId()));
+                        if (targetCategory == null && answer.categoryName() != null && !answer.categoryName().isBlank()) {
+                            targetCategory = Optional.ofNullable(lookByName.apply(answer.categoryName()))
+                                    .orElse(thinking.apply(answer.categoryName));
+                        }
+
+                        if (targetCategory != null) {
+                            p.assignCategory(targetCategory);
+                        }
+                    });
 
             return new PurchaseAssembler().toDTOList(purchases);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private String prepareContext(List<Purchase> purchases) {
+        return purchases.parallelStream()
+                .map(purchase -> Templates.purchaseSearchQuery(purchase.name()))
+                .flatMap(this::vectorSearch)
+                .distinct()
+                .collect(Collectors.joining("\r\n"));
+    }
+
+    @NotNull
+    private List<Purchase> loadPurchases(List<String> purchaseIdList) {
+        return purchaseIdList.stream()
+                .filter(Objects::nonNull)
+                .map(PurchaseId::new)
+                .map(purchaseRepository::find)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     private Stream<String> vectorSearch(String query) {
@@ -124,7 +182,15 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
         return relatedText.stream().map(Object::toString);
     }
 
-    @NotNull
+    private Stream<PurchaseCategoryData> parseCategoriesAnswer(String answer) {
+        try {
+            return Arrays.stream(objectMapper.readValue(answer, PurchaseCategoryData[].class));
+        } catch (JsonProcessingException e) {
+            log.error("Error when reading JSON from string: {}", answer);
+            return Stream.empty();
+        }
+    }
+
     private Stream<CategoryData> parseCategoryAnswer(String answer) {
         try {
             return Stream.of(objectMapper.readValue(answer, CategoryData.class));
@@ -136,4 +202,11 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
 
     record CategoryData(String name, String id) {
     }
+
+    record PurchaseCategoryData(String purchaseId, String categoryId, String categoryName) {
+    }
+
+    record IdNameOfPurchase(String purchaseId, String purchaseName) {
+    }
+
 }

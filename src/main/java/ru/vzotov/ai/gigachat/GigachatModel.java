@@ -5,7 +5,6 @@ import gigachat.v1.Gigachatv1;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.vzotov.ai.domain.ChatModel;
-import ru.vzotov.ai.interfaces.facade.impl.AIFacadeImpl;
 
 import java.util.stream.Stream;
 
@@ -14,9 +13,11 @@ public class GigachatModel implements ChatModel {
     private static final Logger log = LoggerFactory.getLogger(GigachatModel.class);
 
     private final ChatServiceGrpc.ChatServiceBlockingStub gigachat;
+    private final String modelName;
 
-    public GigachatModel(ChatServiceGrpc.ChatServiceBlockingStub gigachat) {
+    public GigachatModel(ChatServiceGrpc.ChatServiceBlockingStub gigachat, String modelName) {
         this.gigachat = gigachat;
+        this.modelName = modelName;
     }
 
     @Override
@@ -24,7 +25,12 @@ public class GigachatModel implements ChatModel {
         log.debug("Prompt: {}", prompt);
 
         Gigachatv1.ChatResponse chat = gigachat.chat(Gigachatv1.ChatRequest.newBuilder()
-                .setModel("GigaChat:latest")
+//                .setModel("GigaChat:latest")
+                .setModel(modelName)
+                .setOptions(Gigachatv1.ChatOptions.newBuilder()
+                        .setTemperature(0.7f)
+                        .setMaxTokens(4096)
+                        .build())
                 .addMessages(Gigachatv1.Message.newBuilder()
                         .setRole("user")
                         .setContent(prompt).build())

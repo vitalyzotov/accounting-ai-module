@@ -15,6 +15,7 @@ public class GigaChatAccessTokenResponseConverter implements Converter<Map<Strin
     public static final String EXPIRES_AT = "expires_at";
 
     private static final Set<String> TOKEN_RESPONSE_PARAMETER_NAMES = Set.of(ACCESS_TOKEN, EXPIRES_AT);
+    private static final int OVERLAP_EXPIRATION_SECONDS = 5;
 
     @Override
     public OAuth2AccessTokenResponse convert(Map<String, Object> source) {
@@ -29,7 +30,7 @@ public class GigaChatAccessTokenResponseConverter implements Converter<Map<Strin
         return OAuth2AccessTokenResponse.withToken(accessToken)
                 .tokenType(OAuth2AccessToken.TokenType.BEARER)
                 .additionalParameters(additionalParameters)
-                .expiresIn(ChronoUnit.MILLIS.between(Instant.now(), expiresAt))
+                .expiresIn(Math.max(0, ChronoUnit.SECONDS.between(Instant.now(), expiresAt) - OVERLAP_EXPIRATION_SECONDS))
                 .build();
     }
 
