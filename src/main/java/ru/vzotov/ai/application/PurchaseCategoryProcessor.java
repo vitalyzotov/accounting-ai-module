@@ -8,17 +8,12 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
 import lombok.Builder;
-import ru.vzotov.ai.domain.Templates;
 import ru.vzotov.purchase.domain.model.Purchase;
 
 import java.util.List;
 import java.util.Objects;
 
 import static java.util.Collections.singletonList;
-import static ru.vzotov.ai.domain.PurchaseCategoriesCollection.ENTITY_PURCHASE;
-import static ru.vzotov.ai.domain.PurchaseCategoriesCollection.F_ENTITY;
-import static ru.vzotov.ai.domain.PurchaseCategoriesCollection.F_ID;
-import static ru.vzotov.ai.domain.PurchaseCategoriesCollection.F_LAST_MODIFIED;
 
 public class PurchaseCategoryProcessor {
 
@@ -58,12 +53,18 @@ public class PurchaseCategoryProcessor {
     }
 
     static class ItemAction {
+        private static final String ENTITY_PURCHASE = "purchase";
+        private static final String F_ID = "entityId";
+        private static final String F_ENTITY = "entity";
+        private static final String F_LAST_MODIFIED = "last_modified";
+
         private final Purchase purchase;
         private final String text;
 
         public ItemAction(Purchase purchase) {
             this.purchase = purchase;
-            this.text = Templates.purchaseHasCategory(purchase);
+            this.text = "Purchase '%s' has category '%s' with id '%s'."
+                    .formatted(purchase.name(), purchase.category().name(), purchase.category().categoryId().value());
         }
 
         public Purchase purchase() {

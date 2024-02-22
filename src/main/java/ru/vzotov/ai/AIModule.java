@@ -5,7 +5,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
+import dev.langchain4j.store.embedding.pgvector.PgVectorEmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
@@ -23,7 +23,7 @@ import ru.vzotov.cashreceipt.domain.model.PurchaseCategoryRepository;
 import ru.vzotov.langchain4j.gigachat.spring.AutoConfig;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
-@ConditionalOnProperty(prefix = "accounting.ai", name = "enabled")
+@ConditionalOnProperty(prefix = AIModuleProperties.PREFIX, name = "enabled")
 @Configuration
 @ImportAutoConfiguration(AutoConfig.class)
 @EnableConfigurationProperties(AIModuleProperties.class)
@@ -33,14 +33,19 @@ public class AIModule {
 
     @Bean
     EmbeddingStore<TextSegment> embeddingStore(AIModuleProperties properties) {
-        MilvusConfigProperties config = properties.getMilvus();
-        return MilvusEmbeddingStore.builder()
+        PgVectorConfigProperties config = properties.getPgvector();
+        return PgVectorEmbeddingStore.builder()
                 .host(config.getHost())
                 .port(config.getPort())
+                .database(config.getDatabase())
+                .user(config.getUser())
+                .password(config.getPassword())
                 .dimension(config.getDimension())
-                .collectionName(config.getCollectionName())
-//                .indexType(IndexType.HNSW)
-//                .metricType(MetricType.L2)
+                .table(config.getTable())
+                .createTable(config.getCreate())
+                .dropTableFirst(config.getDrop())
+                .useIndex(true)
+                .indexListSize(config.getIndexListSize())
                 .build();
     }
 

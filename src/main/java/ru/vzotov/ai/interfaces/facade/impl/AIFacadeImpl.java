@@ -29,14 +29,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.jetbrains.annotations.NotNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.transaction.annotation.Transactional;
 import ru.vzotov.accounting.infrastructure.security.SecurityUtils;
 import ru.vzotov.accounting.interfaces.purchases.PurchasesApi;
 import ru.vzotov.accounting.interfaces.purchases.facade.impl.assembler.PurchaseAssembler;
-import ru.vzotov.ai.domain.PurchaseCategoriesCollection;
 import ru.vzotov.ai.interfaces.facade.AIFacade;
 import ru.vzotov.cashreceipt.domain.model.PurchaseCategory;
 import ru.vzotov.cashreceipt.domain.model.PurchaseCategoryId;
@@ -45,18 +42,14 @@ import ru.vzotov.purchase.domain.model.Purchase;
 import ru.vzotov.purchase.domain.model.PurchaseId;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
-    private static final Logger log = LoggerFactory.getLogger(AIFacadeImpl.class);
-
+public class AIFacadeImpl implements AIFacade {
     private final PurchaseCategoryRepository purchaseCategoryRepository;
     private final PurchaseRepository purchaseRepository;
     private final EmbeddingStore<TextSegment> embeddingStore;
@@ -187,24 +180,6 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
                 .toList();
     }
 
-    private Stream<PurchaseCategoryData> parseCategoriesAnswer(String answer) {
-        try {
-            return Arrays.stream(objectMapper.readValue(answer, PurchaseCategoryData[].class));
-        } catch (JsonProcessingException e) {
-            log.error("Error when reading JSON from string: {}", answer);
-            return Stream.empty();
-        }
-    }
-
-    private Stream<CategoryData> parseCategoryAnswer(String answer) {
-        try {
-            return Stream.of(objectMapper.readValue(answer, CategoryData.class));
-        } catch (JsonProcessingException e) {
-            log.error("Error when reading JSON from string: {}", answer);
-            return Stream.empty();
-        }
-    }
-
     record CategoryData(String name, String id) {
     }
 
@@ -214,6 +189,7 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
     @Builder
     static class PurchaseCategoryData {
         private String purchaseId;
+        private String purchaseName;
         private String categoryId;
         private String categoryName;
     }
@@ -227,7 +203,7 @@ public class AIFacadeImpl implements AIFacade, PurchaseCategoriesCollection {
 
     record AgentResponse(
             @Description("""
-                    array of objects {"purchaseId": (type: string), "categoryId": (type: string), "categoryName": (type: string)}
+                    array of objects {"purchaseId": (type: string), "purchaseName": (type: string), "categoryId": (type: string), "categoryName": (type: string)}
                     """)
             List<PurchaseCategoryData> classification) {
     }

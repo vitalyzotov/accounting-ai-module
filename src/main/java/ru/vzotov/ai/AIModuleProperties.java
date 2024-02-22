@@ -11,8 +11,13 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 public class AIModuleProperties {
     static final String PREFIX = "accounting.ai";
 
+    Boolean enabled = true;
+
     @NestedConfigurationProperty
     MilvusConfigProperties milvus;
+
+    @NestedConfigurationProperty
+    PgVectorConfigProperties pgvector;
 
     @NestedConfigurationProperty
     PurchasesConfigProperties purchases;
