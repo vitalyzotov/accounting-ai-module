@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 @Setter
 @ConfigurationProperties(prefix = AIModuleProperties.PREFIX)
 public class AIModuleProperties {
-    static final String PREFIX = "accounting.ai";
+    public static final String PREFIX = "accounting.ai";
 
     Boolean enabled = true;
 

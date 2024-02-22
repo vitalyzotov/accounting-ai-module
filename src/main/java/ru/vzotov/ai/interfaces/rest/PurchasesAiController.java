@@ -1,13 +1,14 @@
 package ru.vzotov.ai.interfaces.rest;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 import ru.vzotov.accounting.interfaces.purchases.PurchasesApi;
+import ru.vzotov.ai.AIModuleProperties;
 import ru.vzotov.ai.interfaces.facade.AIFacade;
 
 import java.util.List;
 
-@ConditionalOnBean(AIFacade.class)
+@ConditionalOnProperty(prefix = AIModuleProperties.PREFIX, name = "enabled")
 @RestController
 @RequestMapping("/accounting/purchases")
 @CrossOrigin
