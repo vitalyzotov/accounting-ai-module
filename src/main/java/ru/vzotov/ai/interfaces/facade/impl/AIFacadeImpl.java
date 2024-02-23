@@ -3,6 +3,8 @@ package ru.vzotov.ai.interfaces.facade.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Lists;
+import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.Content;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
@@ -23,12 +25,15 @@ import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.rag.query.transformer.QueryTransformer;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.transaction.annotation.Transactional;
 import ru.vzotov.accounting.infrastructure.security.SecurityUtils;
@@ -42,14 +47,22 @@ import ru.vzotov.purchase.domain.model.Purchase;
 import ru.vzotov.purchase.domain.model.PurchaseId;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public class AIFacadeImpl implements AIFacade {
+
+    private static final Logger log = LoggerFactory.getLogger(AIFacadeImpl.class);
+
     private final PurchaseCategoryRepository purchaseCategoryRepository;
     private final PurchaseRepository purchaseRepository;
     private final EmbeddingStore<TextSegment> embeddingStore;
@@ -76,11 +89,92 @@ public class AIFacadeImpl implements AIFacade {
     @Override
     @Transactional(value = "accounting-tx", readOnly = true)
     @Secured({"ROLE_USER"})
+    public List<PurchasesApi.Purchase> classifyPurchasesBySimilarity(List<String> purchaseIdList) {
+        final int samples = 5;
+        final int threshold = samples - 1;
+        log.debug("Start hybrid classification of purchases {}. Samples={}, threshold={}",
+                purchaseIdList, samples, threshold);
+        try {
+            final List<PurchaseCategory> categories = purchaseCategoryRepository.findAll(SecurityUtils.getCurrentPerson());
+            final Map<PurchaseCategoryId, PurchaseCategory> purchaseCategoryMap = categories.stream()
+                    .collect(Collectors.toMap(PurchaseCategory::categoryId, it -> it));
+            final List<Purchase> purchases = loadPurchases(purchaseIdList);
+            final List<Purchase> classified = new ArrayList<>();
+            final List<String> classifyByChatModel = new ArrayList<>();
+
+            log.debug("Get embeddings");
+            final List<Embedding> embeddings = embeddingModel.embedAll(
+                    purchases.stream().map(p -> TextSegment.from(p.name())).toList()).content();
+
+            IntStream.range(0, purchases.size())
+                    .boxed()
+                    .parallel()
+                    .forEach(i -> {
+                        Purchase purchase = purchases.get(i);
+                        Embedding embedding = embeddings.get(i);
+
+                        log.debug("{}:: Find relevant documents for purchase {}, {}", i, purchase.purchaseId(), purchase.name());
+
+                        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embedding, samples, 0.8);
+                        Map<PurchaseCategoryId, Long> relevantCategories = relevant.stream()
+                                .map(match -> match.embedded().text())
+                                .peek(text -> log.debug("Sample: {}", text))
+                                .map(AIFacadeImpl::extractCategoryId)
+                                .filter(Objects::nonNull)
+                                .map(PurchaseCategoryId::new)
+                                .collect(Collectors.groupingBy(e -> e, Collectors.counting()));
+
+                        Optional<PurchaseCategory> optionalKey = relevantCategories.entrySet().stream()
+                                .filter(entry -> entry.getValue() > threshold)
+                                .map(Map.Entry::getKey)
+                                .findFirst()
+                                .map(purchaseCategoryMap::get);
+
+                        optionalKey.ifPresentOrElse(category -> {
+                                    log.debug("{}:: Relevant category: {}, {}", i, category.categoryId(), category.name());
+                                    purchase.assignCategory(category);
+                                    classified.add(purchase);
+                                },
+                                () -> classifyByChatModel.add(purchase.purchaseId().value()));
+
+                    });
+
+            final List<PurchasesApi.Purchase> fromChatModel = new ArrayList<>();
+            if (!classifyByChatModel.isEmpty()) {
+                log.debug("This list of purchases is ambiguous. We will use chat model for classification: {}", classifyByChatModel);
+                Lists.partition(classifyByChatModel, 5).stream()
+                        .map(this::classifyPurchases)
+                        .forEach(fromChatModel::addAll);
+            }
+
+
+            return Stream.concat(
+                    new PurchaseAssembler().toDTOList(classified).stream(),
+                    fromChatModel.stream()
+            ).toList();
+        } finally {
+            log.debug("Done");
+        }
+    }
+
+    private static String extractCategoryId(String document) {
+        Pattern pattern = Pattern.compile("with id '(.+?)'");
+        Matcher matcher = pattern.matcher(document);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
+    @Override
+    @Transactional(value = "accounting-tx", readOnly = true)
+    @Secured({"ROLE_USER"})
     public List<PurchasesApi.Purchase> classifyPurchases(List<String> purchaseIdList) {
         final List<PurchaseCategory> categories = purchaseCategoryRepository.findAll(SecurityUtils.getCurrentPerson());
         final Map<PurchaseCategoryId, PurchaseCategory> purchaseCategoryMap = categories.stream()
                 .collect(Collectors.toMap(PurchaseCategory::categoryId, it -> it));
 
+        // todo: we can embed multiple queries in one request (use embedAll)
         // The content retriever is responsible for retrieving relevant content based on a text query.
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
@@ -92,6 +186,7 @@ public class AIFacadeImpl implements AIFacade {
         // Aggregates all Contents retrieved from all ContentRetrievers using all queries.
         ContentAggregator contentAggregator = new DefaultContentAggregator();
 
+        // todo: we can use special kind of query (list of simple queries)
         // Splits collection query to multiple queries: one query for each item
         QueryTransformer queryTransformer = query -> {
             UserMessage userMessage = query.metadata().userMessage();

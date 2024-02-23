@@ -7,6 +7,7 @@ import ru.vzotov.ai.AIModuleProperties;
 import ru.vzotov.ai.interfaces.facade.AIFacade;
 
 import java.util.List;
+import java.util.Optional;
 
 @ConditionalOnProperty(prefix = AIModuleProperties.PREFIX, name = "enabled")
 @RestController
@@ -22,10 +23,18 @@ public class PurchasesAiController {
 
     @PatchMapping
     public List<PurchasesApi.Purchase> classifyPurchases(@RequestBody ClassifyPurchasesRequest request) {
-        return facade.classifyPurchases(request.purchaseId());
+        Mode mode = Optional.ofNullable(request.mode()).orElse(Mode.HYBRID);
+        return switch (mode) {
+            case HYBRID -> facade.classifyPurchasesBySimilarity(request.purchaseId());
+            case RAG -> facade.classifyPurchases(request.purchaseId());
+        };
     }
 
-    public record ClassifyPurchasesRequest(List<String> purchaseId) {
+    public enum Mode {
+        HYBRID, RAG;
+    }
+
+    public record ClassifyPurchasesRequest(List<String> purchaseId, Mode mode) {
 
     }
 
