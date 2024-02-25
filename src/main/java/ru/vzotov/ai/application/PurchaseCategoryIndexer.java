@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.vzotov.accounting.domain.model.PersistentProperty;
 import ru.vzotov.accounting.domain.model.PersistentPropertyId;
 import ru.vzotov.accounting.domain.model.PersistentPropertyRepository;
+import ru.vzotov.ai.ModelType;
 import ru.vzotov.purchase.domain.model.Purchase;
 import ru.vzotov.purchases.domain.model.PurchaseRepository;
 
@@ -34,6 +35,7 @@ public class PurchaseCategoryIndexer {
     private final ObjectMapper objectMapper;
     private final PurchaseRepository purchaseRepository;
     private final PersistentPropertyRepository propertyRepository;
+    private final ModelType modelType;
     private final PurchaseCategoryProcessor processor;
 
     @Builder
@@ -41,19 +43,25 @@ public class PurchaseCategoryIndexer {
             ObjectMapper objectMapper,
             PurchaseRepository purchaseRepository,
             PersistentPropertyRepository propertyRepository,
-            PurchaseCategoryProcessor processor
+            PurchaseCategoryProcessor processor,
+            ModelType modelType
     ) {
         this.processor = Objects.requireNonNull(processor);
         this.objectMapper = objectMapper;
         this.purchaseRepository = purchaseRepository;
         this.propertyRepository = propertyRepository;
+        this.modelType = Objects.requireNonNull(modelType);
+    }
+
+    private String systemPropertyName() {
+        return "ai.purchases." + modelType;
     }
 
     /**
      * Date of the most recent known purchase
      */
     public Instant lastIndexedOn() {
-        PersistentProperty prop = propertyRepository.findSystemProperty("ai.purchases");
+        PersistentProperty prop = propertyRepository.findSystemProperty(systemPropertyName());
         if (prop == null) {
             return Instant.EPOCH;
         } else {
@@ -67,8 +75,9 @@ public class PurchaseCategoryIndexer {
     }
 
     public void updateLastIndexedOn(Instant value) {
-        PersistentProperty prop = Optional.ofNullable(propertyRepository.findSystemProperty("ai.purchases"))
-                .orElseGet(() -> new PersistentProperty(PersistentPropertyId.nextId(), "ai.purchases"));
+        final String systemPropertyName = systemPropertyName();
+        PersistentProperty prop = Optional.ofNullable(propertyRepository.findSystemProperty(systemPropertyName))
+                .orElseGet(() -> new PersistentProperty(PersistentPropertyId.nextId(), systemPropertyName));
         PurchasesAIProperties props = new PurchasesAIProperties(value);//todo: keep other properties
         try {
             prop.setValue(objectMapper.writeValueAsString(props));
@@ -78,8 +87,8 @@ public class PurchaseCategoryIndexer {
         }
     }
 
-    @Scheduled(initialDelayString = "${accounting.ai.purchases.index.initial-delay}",
-            fixedDelayString = "${accounting.ai.purchases.index.delay}")
+    @Scheduled(initialDelayString = "#{@aiModuleProperties.purchases.initialDelay}",
+            fixedDelayString = "#{@aiModuleProperties.purchases.delay}")
     @Transactional(value = "accounting-tx")
     public void doIndex() {
         log.info("Start indexing purchases");

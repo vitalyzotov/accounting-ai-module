@@ -111,12 +111,7 @@ public class AIFacadeImplIT {
                         "langchain4j.gigachat.chat-model.scope=" + GIGACHAT_SCOPE,
                         "langchain4j.gigachat.embedding-model.client-id=" + GIGACHAT_CLIENT_ID,
                         "langchain4j.gigachat.embedding-model.client-secret=" + GIGACHAT_CLIENT_SECRET,
-                        "langchain4j.gigachat.embedding-model.scope=" + GIGACHAT_SCOPE,
-                        "accounting.ai.enabled=true",
-                        "accounting.ai.milvus.host=" + MILVUS_HOST,
-                        "accounting.ai.milvus.port=" + MILVUS_PORT,
-                        "accounting.ai.milvus.dimension=1024",
-                        "accounting.ai.milvus.collectionName=accountingIT"
+                        "langchain4j.gigachat.embedding-model.scope=" + GIGACHAT_SCOPE
                 )
                 .withBean("purchaseRepository", PurchaseRepository.class, () -> purchaseRepository)
                 .withBean("purchaseCategoryRepository", PurchaseCategoryRepository.class, () -> purchaseCategoryRepository)

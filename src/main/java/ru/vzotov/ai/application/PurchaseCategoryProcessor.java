@@ -56,6 +56,7 @@ public class PurchaseCategoryProcessor {
         private static final String ENTITY_PURCHASE = "purchase";
         private static final String F_ID = "entityId";
         private static final String F_ENTITY = "entity";
+        private static final String F_REFERENCE_ID = "reference_id";
         private static final String F_LAST_MODIFIED = "last_modified";
 
         private final Purchase purchase;
@@ -78,7 +79,8 @@ public class PurchaseCategoryProcessor {
         public Metadata metadata() {
             return Metadata.from(F_ID, purchase().purchaseId().value())
                     .add(F_ENTITY, ENTITY_PURCHASE)
-                    .add(F_LAST_MODIFIED, String.valueOf(purchase().updatedOn().toEpochMilli()));
+                    .add(F_LAST_MODIFIED, String.valueOf(purchase().updatedOn().toEpochMilli()))
+                    .add(F_REFERENCE_ID, purchase().category().categoryId().value());
         }
     }
 

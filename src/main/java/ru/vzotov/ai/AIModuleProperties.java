@@ -13,8 +13,7 @@ public class AIModuleProperties {
 
     Boolean enabled = true;
 
-    @NestedConfigurationProperty
-    MilvusConfigProperties milvus;
+    ModelType modelType = ModelType.GIGACHAT;
 
     @NestedConfigurationProperty
     PgVectorConfigProperties pgvector;

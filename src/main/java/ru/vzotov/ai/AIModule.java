@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import ru.vzotov.accounting.domain.model.PersistentPropertyRepository;
@@ -26,10 +25,14 @@ import ru.vzotov.purchases.domain.model.PurchaseRepository;
 @ConditionalOnProperty(prefix = AIModuleProperties.PREFIX, name = "enabled")
 @Configuration
 @ImportAutoConfiguration(AutoConfig.class)
-@EnableConfigurationProperties(AIModuleProperties.class)
 public class AIModule {
 
     private static final Logger log = LoggerFactory.getLogger(AIModule.class);
+
+    @Bean
+    AIModuleProperties aiModuleProperties() {
+        return new AIModuleProperties();
+    }
 
     @Bean
     EmbeddingStore<TextSegment> embeddingStore(AIModuleProperties properties) {
@@ -81,11 +84,13 @@ public class AIModule {
 
     @Bean
     @ConditionalOnBean(PersistentPropertyRepository.class)
-    PurchaseCategoryIndexer indexer(ObjectMapper objectMapper,
+    PurchaseCategoryIndexer indexer(AIModuleProperties properties,
+                                    ObjectMapper objectMapper,
                                     PurchaseRepository purchaseRepository,
                                     PersistentPropertyRepository propertyRepository,
                                     PurchaseCategoryProcessor processor) {
         return PurchaseCategoryIndexer.builder()
+                .modelType(properties.getModelType())
                 .objectMapper(objectMapper)
                 .purchaseRepository(purchaseRepository)
                 .propertyRepository(propertyRepository)
